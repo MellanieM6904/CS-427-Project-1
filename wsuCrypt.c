@@ -13,6 +13,8 @@ Date: 2/24/23
 
 int encrypt(char *key, char *pTxt);
 int decrypt(char *key, char *cTxt);
+char **blockSplit(char *block);
+char **keySplit(char *wholeKey);
 
 int main (int argc, char **argv) {
 
@@ -36,7 +38,7 @@ int main (int argc, char **argv) {
 int encrypt(char *key, char *pTxt) {
 
     char txtBuffer[BUFF_SIZE];
-    char keyBuffer[16];
+    char keyBuffer[17];
     int input;
     int fd;
 
@@ -64,6 +66,7 @@ int encrypt(char *key, char *pTxt) {
     }
     close(fd);
 
+    // PADDING INPUT
     int length = strlen(txtBuffer);
     if ((length - 1) % 16 != 0) { // padding necessary
         int paddedLen = length + (16 - (input % 16));
@@ -74,10 +77,22 @@ int encrypt(char *key, char *pTxt) {
     }
     int pTxtLen = i;
 
-    int numBlocks = pTxtLen/16;
-    for (int k = 0; k < pTxtLen; k += 16) { // main encryption loop, send block to blockSplit, encrypt
+    // SPLITTING KEYS 
+    char keys[4][4] = keySplit(keyBuffer); // array with k0, k1, k2, k3
 
+    // MAIN ENCRYPTION LOOP
+    int numBlocks = pTxtLen/16;
+    for (i = 0; i < numBlocks; i++) { // for each block
+        char block[16];
+        for (int k = 0; k < 16; k ++) {
+            block[k] = txtBuffer[i*16 + k];
+        }
+        char words[4][4] = blockSplit(block);
     }
+
+    //TESTING
+    printf("WORDS:\nw0: %s\nw1: %s\nw2: %s\nw3: %s", words[0], words[1], words[2], words[3]);
+    printf("KEYS:\nk0: %s\nk1: %s\nk2: %s\nk3: %s", keys[0], keys[1], keys[2], keys[3]);
 }
 
 int decrypt(char *key, char *cTxt) {
@@ -85,10 +100,32 @@ int decrypt(char *key, char *cTxt) {
     // read in cTxt
 }
 
-int blockSplit(char *block, char *key) {
-    int input;
-    char block[8][4]; // first 4 items = words, last 4 = subkeys. 8, 4-char (16 bit) blocks
+char **blockSplit(char *block) {
+    
+    char words[4][4]; // words; 4, 4-char (16 bit) blocks
+    int k = 0;
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            words[i][j] = block[k];
+            k++;
+        }
+    }
 
+    return words;
+}
+
+char **keySplit(char *wholeKey) {
+
+    char keys[4][4] // keys; 4, 4-char (16 bit) keys. 2 Hex values in each key
+    int k = 0;
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            words[i][j] = wholeKey[k];
+            k++;
+        }
+    }
+
+    return keys;
 }
 
 int GFunction() {
