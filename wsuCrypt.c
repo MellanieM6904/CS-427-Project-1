@@ -12,12 +12,16 @@ Date: 2/24/23
 
 # define BUFF_SIZE 1024
 
-int e(char *key, char *pTxt);
-int d(char *key, char *cTxt);
+int e(char *key, char *pTxt, char *cTxt, int flag);
 char **blockSplit(char *block, char **words);
 char **keySplit(char *wholeKey, char **keys);
 int hexToBinary(char *hex, int *binArray, int multiple);
-int *fTable(int input);
+int fTable(int input);
+int leftRotate(int *key);
+int rightRotate(int *key);
+int keyScheduler(int x, int keyNum, int *key, int (*subkeys)[8]);
+int *F(int R0, int R1, int *F0, int *F1, int subkeys[12][8]);
+int G(int word, int k0, int k1, int k2, int k3);
 
 int main (int argc, char **argv) {
 
@@ -27,9 +31,9 @@ int main (int argc, char **argv) {
 
     int flag;
     if (strcmp(argv[1], "-e") == 0) {
-        e(argv[3], argv[5]);
+        e(argv[3], argv[5], argv[7], 0);
     } else if (strcmp(argv[1], "-d") == 0) {
-        d(argv[3], argv[5]);
+        e(argv[3], argv[5], argv[7], 1);
     } else {
         printf("Improper use. Run using:\n[ENCRYPTION] ./wsuCrypt -e -k key.txt -in plaintext.txt -out ciphertext.txt\n[DECRYPTION] ./wsuCrypt -d -k key.txt -in ciphertext.txt -out plaintext.txt");
         return -1;
@@ -38,15 +42,16 @@ int main (int argc, char **argv) {
     return 0;
 }
 
-int e(char *key, char *pTxt) {
+int e(char *key, char *pTxt, char *cTxt, int flag) {
 
     char txtBuffer[BUFF_SIZE];
     char keyBuffer[17];
     int input;
     int fd;
 
+    // READ IN PLAINTEXT
     if ((fd = open(pTxt, O_RDONLY)) == -1) return -1; //error
-    int i = 0; // read in pTxt
+    int i = 0;
     while (1) {
         input = read(fd, &txtBuffer[i], 1);
         if (input <= 0) { // EOF
@@ -57,8 +62,9 @@ int e(char *key, char *pTxt) {
     }
     close(fd);
 
+    // READ IN KEY
     if ((fd = open(key, O_RDONLY)) == -1) return -1; //error
-    int j = 0; // read in key
+    int j = 0;
     while (1) {
         input = read(fd, &keyBuffer[j], 1);
         if (input <= 0) { // EOF
@@ -82,55 +88,18 @@ int e(char *key, char *pTxt) {
     int pTxtLen = i;
 
     printf("BLOCK: %s\n", txtBuffer);
-    
 
-    // SPLITTING KEYS 
+    // SPLITTING KEY
     char **keys = (char **)malloc(4 * sizeof(char *));
     for (i = 0; i < 4; i++) keys[i] = (char *)malloc(4 * sizeof(char));
     keys = keySplit(keyBuffer, keys); // array with k0, k1, k2, k3
     printf("KEYS:\nk0: %s\nk1: %s\nk2: %s\nk3: %s\n", keys[0], keys[1], keys[2], keys[3]);
 
-    int K0[16], K1[16], K2[16], K3[16];
+    int K0[16], K1[16], K2[16], K3[16]; // binary equivalents
     hexToBinary(keys[0], K0, 4);
     hexToBinary(keys[1], K1, 4);
     hexToBinary(keys[2], K2, 4);
     hexToBinary(keys[3], K3, 4);
-
-    printf("K0: ");
-    for (int i = 0; i < 16; i++) {
-        if (K0[i] & 1)
-            printf("1");
-        else
-            printf("0");
-    }
-    printf("\n");
-
-    printf("K1: ");
-    for (int i = 0; i < 16; i++) {
-        if (K1[i] & 1)
-            printf("1");
-        else
-            printf("0");
-    }
-    printf("\n");
-
-    printf("K2: ");
-    for (int i = 0; i < 16; i++) {
-        if (K2[i] & 1)
-            printf("1");
-        else
-            printf("0");
-    }
-    printf("\n");
-
-    printf("K3: ");
-    for (int i = 0; i < 16; i++) {
-        if (K3[i] & 1)
-            printf("1");
-        else
-            printf("0");
-    }
-    printf("\n");
 
     // MAIN ENCRYPTION LOOP
     int numBlocks = pTxtLen/16;
@@ -152,42 +121,6 @@ int e(char *key, char *pTxt) {
         hexToBinary(words[2], W2, 4);
         hexToBinary(words[3], W3, 4);
 
-        printf("W0: ");
-        for (int i = 0; i < 16; i++) {
-            if (W0[i] & 1)
-                printf("1");
-            else
-                printf("0");
-        }
-        printf("\n");
-
-        printf("W1: ");
-        for (int i = 0; i < 16; i++) {
-            if (W1[i] & 1)
-                printf("1");
-            else
-                printf("0");
-        }
-        printf("\n");
-
-        printf("W2: ");
-        for (int i = 0; i < 16; i++) {
-            if (W2[i] & 1)
-                printf("1");
-            else
-                printf("0");
-        }
-        printf("\n");
-
-        printf("W3: ");
-        for (int i = 0; i < 16; i++) {
-            if (W3[i] & 1)
-                printf("1");
-            else
-                printf("0");
-        }
-        printf("\n");
-
         // WHITENING
         int R0[16], R1[16], R2[16], R3[16];
         for (int k = 0; k < 16; k++) {
@@ -196,51 +129,82 @@ int e(char *key, char *pTxt) {
             R2[k] = W2[k] ^ K2[k];
             R3[k] = W3[k] ^ K3[k];
         }
-        printf("AFTER XOR:\n");
-        printf("R0: ");
-        int i = 0;
-        while (i < 16) {
-            if (R0[i] & 1)
-                printf("1");
-            else
-                printf("0");
-
-            i++;
+        int r0 = 0, r1 = 0, r2 = 0, r3 = 0; // for later use
+        for (int i = 0; i < 16; i++) {
+            r0 = (r0 << 1) | R0[i];
+            r1 = (r1 << 1) | R1[i];
+            r2 = (r2 << 1) | R2[i];
+            r3 = (r3 << 1) | R3[i];
+        }  printf("r0: %x | r1: %x | r2: %x | r3: %x\n", r0, r1, r2, r3);
+        int k0 = 0, k1 = 0, k2 = 0, k3 = 0; // for later use
+        for (int i = 0; i < 16; i++) {
+            k0 = (k0 << 1) | K0[i];
+            k1 = (k1 << 1) | K1[i];
+            k2 = (k2 << 1) | K2[i];
+            k3 = (k3 << 1) | K3[i];
         }
-        printf("\nR1: ");
-        i = 0;
-        while (i < 16) {
-            if (R1[i] & 1)
-                printf("1");
-            else
-                printf("0");
 
-            i++;
+        // binary rep of key
+        int key[64];
+        hexToBinary(keyBuffer, key, 16);
+        for (int roundNum = 0; roundNum < 16; roundNum++) {
+            printf("ROUND %d:\n", roundNum);
+            // GENERATE SUBKEYS - rotate key[64] and call key scheduler
+            int subkeys[12][8]; // k0-k11, each 1 byte long (8 bits)
+            if (flag == 0) {
+                int keyNum = 0;
+                for (int j = 0; j < 3; j++) {
+                    for (int k = 0; k < 4; k++) {
+                        leftRotate(key);
+                        keyScheduler(4*roundNum + k, keyNum, key, subkeys);
+                        keyNum++;
+                    }
+                }
+            } else {
+                int keyNum = 11;
+                for (int j = 0; j < 3; j++) {
+                    for (int k = 0; k < 4; k++) {
+                        keyScheduler(4*roundNum + k, keyNum, key, subkeys);
+                        rightRotate(key);
+                        keyNum--;
+                    }
+                }
+            }
+
+            // F FUNCTION
+            int F0, F1;
+            F(r0, r1, &F0, &F1, subkeys);
+            printf("F0: %x | F1: %x\n", F0, F1);
+
+            // PREP VALS FOR NEXT ROUND
+            int temp, temp2;
+            if (flag == 0) {
+                temp = (r2 ^ F0) >> 1;
+                temp2 = (r3 << 1) ^ F1;
+            }
+            if (flag == 1) {
+                temp = (r2 << 1) ^ F0; 
+                temp2 = (r3 ^ F1) >> 1; 
+            }
+            r2 = r0;
+            r3 = r1;
+            r1 = temp2;
+            r0 = temp;
+            printf("r0: %x | r1: %x | r2: %x | r3: %x\n", r0, r1, r2, r3);
         }
-        printf("\nR2: ");
-        i = 0;
-        while (i < 16) {
-            if (R2[i] & 1)
-                printf("1");
-            else
-                printf("0");
 
-            i++;
-        }
-        printf("\nR3: ");
-        i = 0;
-        while (i < 16) {
-            if (R3[i] & 1)
-                printf("1");
-            else
-                printf("0");
+        int y0 = r2, y1 = r3, y2 = r0, y3 = r1;
+        int C0 = (y0 ^ k0);
+        int C1 = (y1 ^ k1);
+        int C2 = (y2 ^ k2);
+        int C3 = (y3 ^ k3);
 
-            i++;
-        } printf("\n");
-
-        for (int roundNum = 0; roundNum <= 16; roundNum++) {
-
-        }
+        FILE *fp = fopen(cTxt, "w");
+        fprintf(fp, "%x", C0);
+        fprintf(fp, "%x", C1);
+        fprintf(fp, "%x", C2);
+        fprintf(fp, "%x", C3);
+        fclose(fp);
 
         for (int j = 0; j < 4; j++) {
             free(words[j]);
@@ -248,17 +212,11 @@ int e(char *key, char *pTxt) {
         free(words);
     }
 
-    
-
     for (int j = 0; j < 4; j++) {
         free(keys[j]);
     }
     free(keys);
-}
-
-int d(char *key, char *cTxt) {
-    // read in key + generate sub keys, store in reverse to be used in reverse
-    // read in cTxt
+    return 0;
 }
 
 char **blockSplit(char *block, char **words) {
@@ -288,15 +246,27 @@ char **keySplit(char *wholeKey, char **keys) {
     return keys;
 }
 
-int GFunction() {
+int G(int word, int k0, int k1, int k2, int k3) {
+    int g1 = word >> 8; 
+    int g2 = word & 0xFF;
+    int g3 = fTable(g2 ^ k0) ^ g1;
+    int g4 = fTable(g3 ^ k1) ^ g2;
+    int g5 = fTable(g4 ^ k2) ^ g3;
+    int g6 = fTable(g5 ^ k3) ^ g4;
 
+    int res = (g5 << 8) | g6;
+    printf("g1: %x | g2: %x | g3: %x | g4: %x | g5: %x| g6: %x\n", g1, g2, g3, g4, g5, g6);
+    return res;
 }
 
-int keyScheduler(int x, int flag) { // flag = 0 for encryption, = 1 for decryption
-
+int keyScheduler(int x, int keyNum, int *key, int (*subkeys)[8]) {
+    int byteIndex = (7 - (x % 8))*8; // loc of first bit of target byte, w bytes indexed from right to left
+    for (int i = 0; i < 8; i++) {
+        subkeys[keyNum][i] = key[byteIndex + i];
+    }
 }
 
-int *fTable(int input) {
+int fTable(int input) {
     char ftable [256][2] =
                 {"a3", "d7", "09", "83", "f8", "48", "f6", "f4", "b3", "21", "15", "78", "99", "b1", "af", "f9",
                 "e7", "2d", "4d", "8a", "ce", "4c", "ca", "2e", "52", "95", "d9", "1e", "4e", "38", "44", "28",
@@ -323,14 +293,53 @@ int *fTable(int input) {
     result[1] = ftable[index][1];
     int bin[8];
     hexToBinary(result, bin, 2);
-    return bin;
+    int res = 0;
+    for (int i = 0; i < 8; i++) {
+        res = (res << 1) | bin[i];
+    }
+    return res;
 }
 
-int *FFunction() {
-    
+int *F(int R0, int R1, int *F0, int *F1, int subkeys[12][8]) {
+    int k0 = 0, k1 = 0, k2 = 0, k3 = 0, k4 = 0, k5 = 0, k6 = 0, k7 = 0, k8 = 0, k9 = 0, k10 = 0, k11 = 0;
+    for (int i = 0; i < 8; i++) {
+        k0 = (k0 << 1) | subkeys[0][i];
+        k1 = (k1 << 1) | subkeys[1][i];
+        k2 = (k2 << 1) | subkeys[2][i];
+        k3 = (k3 << 1) | subkeys[3][i];
+        k4 = (k4 << 1) | subkeys[4][i];
+        k5 = (k5 << 1) | subkeys[5][i];;
+        k6 = (k6 << 1) | subkeys[6][i];
+        k7 = (k7 << 1) | subkeys[7][i];
+        k8 = (k8 << 1) | subkeys[8][i];
+        k9 = (k9 << 1) | subkeys[9][i];;
+        k10 = (k10 << 1) | subkeys[10][i];
+        k11 = (k11 << 1) | subkeys[11][i];
+    } printf("k0: %x | k1: %x | k2: %x | k3: %x | k4: %x | k5: %x | k6: %x | k7: %x | k8: %x | k9: %x | k10: %x | k11: %x\n", k0, k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11);
+    int T0 = G(R0, k0, k1, k2, k3);
+    int T1 = G(R1, k4, k5, k6, k7);
+    printf("T0: %x | T1: %x\n", T0, T1);
+    *F0 = (T0 + 2*T1 + ((k8 << 8) | k9)) % 65536;
+    *F1 = (2*T0 + T1 + ((k10 << 8) | k11)) % 65536;
 }
 
+int leftRotate(int *key) {
+    int i, head;
+    head = key[0];
+    for (i = 0; i < 64 - 1; i++) {
+        key[i] = key[i + 1];
+    }
+    key[i] = head; // circular rotation
+}
 
+int rightRotate(int *key) {
+    int i, tail;
+    tail = key[64];
+    for (i = 64; i > 0; i--) {
+        key[i] = key[i - 1];
+    }
+    key[i] = tail; // circular rotation
+}
 
 int hexToBinary(char *hex, int *binArray, int multiple) {
     for (int i = 0; i < multiple; i++) {
@@ -341,70 +350,60 @@ int hexToBinary(char *hex, int *binArray, int multiple) {
             binArray[1 + 4*i] = 0;
             binArray[2 + 4*i] = 0;
             binArray[3 + 4*i] = 0;
-            //printf("0000");
             break;
         case '1':
             binArray[0 + 4*i] = 0;
             binArray[1 + 4*i] = 0;
             binArray[2 + 4*i] = 0;
             binArray[3 + 4*i] = 1;
-            //printf("0001");
             break;
         case '2':
             binArray[0 + 4*i] = 0;
             binArray[1 + 4*i] = 0;
             binArray[2 + 4*i] = 1;
             binArray[3 + 4*i] = 0;
-            //printf("0010");
             break;
         case '3':
             binArray[0 + 4*i] = 0;
             binArray[1 + 4*i] = 0;
             binArray[2 + 4*i] = 1;
             binArray[3 + 4*i] = 1;
-            //printf("0011");
             break;
         case '4':
             binArray[0 + 4*i] = 0;
             binArray[1 + 4*i] = 1;
             binArray[2 + 4*i] = 0;
             binArray[3 + 4*i] = 0;
-            //printf("0100");
             break;
         case '5':
             binArray[0 + 4*i] = 0;
             binArray[1 + 4*i] = 1;
             binArray[2 + 4*i] = 0;
             binArray[3 + 4*i] = 1;
-            //printf("0101");
             break;
         case '6':
             binArray[0 + 4*i] = 0;
             binArray[1 + 4*i] = 1;
             binArray[2 + 4*i] = 1;
             binArray[3 + 4*i] = 0;
-            //printf("0110");
             break;
         case '7':
             binArray[0 + 4*i] = 0;
             binArray[1 + 4*i] = 1;
             binArray[2 + 4*i] = 1;
             binArray[3 + 4*i] = 1;
-            //printf("0111");
             break;
         case '8':
             binArray[0 + 4*i] = 1;
             binArray[1 + 4*i] = 0;
             binArray[2 + 4*i] = 0;
             binArray[3 + 4*i] = 0;
-            //printf("1000");
             break;
         case '9':
             binArray[0 + 4*i] = 1;
             binArray[1 + 4*i] = 0;
             binArray[2 + 4*i] = 0;
             binArray[3 + 4*i] = 1;
-            //printf("1001");
             break;
         case 'A':
         case 'a':
@@ -412,7 +411,6 @@ int hexToBinary(char *hex, int *binArray, int multiple) {
             binArray[1 + 4*i] = 0;
             binArray[2 + 4*i] = 1;
             binArray[3 + 4*i] = 0;
-            //printf("1010");
             break;
         case 'B':
         case 'b':
@@ -420,7 +418,6 @@ int hexToBinary(char *hex, int *binArray, int multiple) {
             binArray[1 + 4*i] = 0;
             binArray[2 + 4*i] = 1;
             binArray[3 + 4*i] = 1;
-            //printf("1011");
             break;
         case 'C':
         case 'c':
@@ -428,7 +425,6 @@ int hexToBinary(char *hex, int *binArray, int multiple) {
             binArray[1 + 4*i] = 1;
             binArray[2 + 4*i] = 0;
             binArray[3 + 4*i] = 0;
-            //printf("1100");
             break;
         case 'D':
         case 'd':
@@ -436,7 +432,6 @@ int hexToBinary(char *hex, int *binArray, int multiple) {
             binArray[1 + 4*i] = 1;
             binArray[2 + 4*i] = 0;
             binArray[3 + 4*i] = 1;
-            //printf("1101");
             break;
         case 'E':
         case 'e':
@@ -444,7 +439,6 @@ int hexToBinary(char *hex, int *binArray, int multiple) {
             binArray[1 + 4*i] = 1;
             binArray[2 + 4*i] = 1;
             binArray[3 + 4*i] = 0;
-            //printf("1110");
             break;
         case 'F':
         case 'f':
@@ -452,10 +446,11 @@ int hexToBinary(char *hex, int *binArray, int multiple) {
             binArray[1 + 4*i] = 1;
             binArray[2 + 4*i] = 1;
             binArray[3 + 4*i] = 1;
-            //printf("1111");
             break;
+        case '\0':
+            return 0; // end of a null terminated buffer
         default:
-            printf("\nInvalid hexadecimal digit %c",
+            printf("\nInvalid hex value %c",
                    hex[i]);
         }
     }
