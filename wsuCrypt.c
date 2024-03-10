@@ -1,7 +1,7 @@
 /*
 Author: Mellanie Martin
 Class: CS 427 - Cryptography & Network Security
-Date: 2/24/23
+Date: 3/9/23
 */
 
 # include <stdio.h>
@@ -31,9 +31,9 @@ int main (int argc, char **argv) {
 
     int flag;
     if (strcmp(argv[1], "-e") == 0) {
-        e(argv[3], argv[5], argv[7], 0);
+        e(argv[3], argv[5], argv[7], 0); // 0 for encryption
     } else if (strcmp(argv[1], "-d") == 0) {
-        e(argv[3], argv[5], argv[7], 1);
+        e(argv[3], argv[5], argv[7], 1); // 1 for decryption
     } else {
         printf("Improper use. Run using:\n[ENCRYPTION] ./wsuCrypt -e -k key.txt -in plaintext.txt -out ciphertext.txt\n[DECRYPTION] ./wsuCrypt -d -k key.txt -in ciphertext.txt -out plaintext.txt");
         return -1;
@@ -42,6 +42,7 @@ int main (int argc, char **argv) {
     return 0;
 }
 
+// main encryption/decryption function. Top level- handles what would be more difficult to do in following functions, and passes values between functions
 int e(char *key, char *pTxt, char *cTxt, int flag) {
 
     char txtBuffer[BUFF_SIZE];
@@ -74,7 +75,7 @@ int e(char *key, char *pTxt, char *cTxt, int flag) {
         j++;
     }
     close(fd);
-    printf("KEY: %s\n", keyBuffer);
+    //printf("KEY: %s\n", keyBuffer);
 
     // PADDING INPUT
     int length = strlen(txtBuffer);
@@ -87,13 +88,13 @@ int e(char *key, char *pTxt, char *cTxt, int flag) {
     }
     int pTxtLen = i;
 
-    printf("BLOCK: %s\n", txtBuffer);
+    //printf("BLOCK: %s\n", txtBuffer);
 
     // SPLITTING KEY
     char **keys = (char **)malloc(4 * sizeof(char *));
     for (i = 0; i < 4; i++) keys[i] = (char *)malloc(4 * sizeof(char));
     keys = keySplit(keyBuffer, keys); // array with k0, k1, k2, k3
-    printf("KEYS:\nk0: %s\nk1: %s\nk2: %s\nk3: %s\n", keys[0], keys[1], keys[2], keys[3]);
+    //printf("KEYS:\nk0: %s\nk1: %s\nk2: %s\nk3: %s\n", keys[0], keys[1], keys[2], keys[3]);
 
     int K0[16], K1[16], K2[16], K3[16]; // binary equivalents
     hexToBinary(keys[0], K0, 4);
@@ -113,7 +114,7 @@ int e(char *key, char *pTxt, char *cTxt, int flag) {
             block[k] = txtBuffer[i*16 + k];
         }
         words = blockSplit(txtBuffer, words);
-        printf("WORDS:\nw0: %s\nw1: %s\nw2: %s\nw3: %s\n", words[0], words[1], words[2], words[3]);
+        //printf("WORDS:\nw0: %s\nw1: %s\nw2: %s\nw3: %s\n", words[0], words[1], words[2], words[3]);
 
         int W0[16], W1[16], W2[16], W3[16];
         hexToBinary(words[0], W0, 4);
@@ -135,7 +136,7 @@ int e(char *key, char *pTxt, char *cTxt, int flag) {
             r1 = (r1 << 1) | R1[i];
             r2 = (r2 << 1) | R2[i];
             r3 = (r3 << 1) | R3[i];
-        }  printf("r0: %x | r1: %x | r2: %x | r3: %x\n", r0, r1, r2, r3);
+        }  //printf("r0: %x | r1: %x | r2: %x | r3: %x\n", r0, r1, r2, r3);
         int k0 = 0, k1 = 0, k2 = 0, k3 = 0; // for later use
         for (int i = 0; i < 16; i++) {
             k0 = (k0 << 1) | K0[i];
@@ -148,7 +149,7 @@ int e(char *key, char *pTxt, char *cTxt, int flag) {
         int key[64];
         hexToBinary(keyBuffer, key, 16);
         for (int roundNum = 0; roundNum < 16; roundNum++) {
-            printf("ROUND %d:\n", roundNum);
+            //printf("ROUND %d:\n", roundNum);
             // GENERATE SUBKEYS - rotate key[64] and call key scheduler
             int subkeys[12][8]; // k0-k11, each 1 byte long (8 bits)
             if (flag == 0) {
@@ -164,8 +165,9 @@ int e(char *key, char *pTxt, char *cTxt, int flag) {
                 int keyNum = 11;
                 for (int j = 0; j < 3; j++) {
                     for (int k = 0; k < 4; k++) {
+                        leftRotate(key);
                         keyScheduler(4*roundNum + k, keyNum, key, subkeys);
-                        rightRotate(key);
+                        //leftRotate(key);
                         keyNum--;
                     }
                 }
@@ -174,23 +176,26 @@ int e(char *key, char *pTxt, char *cTxt, int flag) {
             // F FUNCTION
             int F0, F1;
             F(r0, r1, &F0, &F1, subkeys);
-            printf("F0: %x | F1: %x\n", F0, F1);
+            //printf("F0: %x | F1: %x\n", F0, F1);
 
             // PREP VALS FOR NEXT ROUND
             int temp, temp2;
             if (flag == 0) {
-                temp = (r2 ^ F0) >> 1;
-                temp2 = (r3 << 1) ^ F1;
+                temp = (r2 ^ F0);// >> 1;
+                temp = (temp >> 1) | (temp << 15) % 65536;
+                temp2 = ((r3 << 1) | (r3 >> 15)) % 65536;
+                temp2 = temp2 ^ F1;
             }
             if (flag == 1) {
-                temp = (r2 << 1) ^ F0; 
-                temp2 = (r3 ^ F1) >> 1; 
+                temp = (((r2 << 1) | (r2 >> 15)) % 65536) ^ F0;
+                temp2 = (r3 ^ F1); 
+                temp2 = (temp2 >> 1) | (temp2 << 15) % 65536;
             }
             r2 = r0;
             r3 = r1;
             r1 = temp2;
             r0 = temp;
-            printf("r0: %x | r1: %x | r2: %x | r3: %x\n", r0, r1, r2, r3);
+            //printf("r0: %x | r1: %x | r2: %x | r3: %x\n", r0, r1, r2, r3);
         }
 
         int y0 = r2, y1 = r3, y2 = r0, y3 = r1;
@@ -199,7 +204,7 @@ int e(char *key, char *pTxt, char *cTxt, int flag) {
         int C2 = (y2 ^ k2);
         int C3 = (y3 ^ k3);
 
-        FILE *fp = fopen(cTxt, "w");
+        FILE *fp = fopen(cTxt, "a");
         fprintf(fp, "%x", C0);
         fprintf(fp, "%x", C1);
         fprintf(fp, "%x", C2);
@@ -219,6 +224,7 @@ int e(char *key, char *pTxt, char *cTxt, int flag) {
     return 0;
 }
 
+// splits blocks into 4 16 bit words
 char **blockSplit(char *block, char **words) {
     
     // words; 4, 4-char (16 bit) blocks
@@ -231,7 +237,7 @@ char **blockSplit(char *block, char **words) {
     }
     return words;
 }
-
+// splits key into 4 16 bit keys
 char **keySplit(char *wholeKey, char **keys) {
 
     // keys; 4, 4-char (16 bit) keys. 2 Hex values in each key
@@ -245,7 +251,7 @@ char **keySplit(char *wholeKey, char **keys) {
 
     return keys;
 }
-
+// G FUNCTION - as outlined in specs. Takes keys and a word, and outputs values for F FUNCTION
 int G(int word, int k0, int k1, int k2, int k3) {
     int g1 = word >> 8; 
     int g2 = word & 0xFF;
@@ -255,17 +261,18 @@ int G(int word, int k0, int k1, int k2, int k3) {
     int g6 = fTable(g5 ^ k3) ^ g4;
 
     int res = (g5 << 8) | g6;
-    printf("g1: %x | g2: %x | g3: %x | g4: %x | g5: %x| g6: %x\n", g1, g2, g3, g4, g5, g6);
+    //printf("g1: %x | g2: %x | g3: %x | g4: %x | g5: %x| g6: %x\n", g1, g2, g3, g4, g5, g6);
     return res;
 }
-
+// generates subkeys
 int keyScheduler(int x, int keyNum, int *key, int (*subkeys)[8]) {
     int byteIndex = (7 - (x % 8))*8; // loc of first bit of target byte, w bytes indexed from right to left
     for (int i = 0; i < 8; i++) {
         subkeys[keyNum][i] = key[byteIndex + i];
     }
+    return 0;
 }
-
+// given a hex value, returns the corresponding value in FTable lookup table
 int fTable(int input) {
     char ftable [256][2] =
                 {"a3", "d7", "09", "83", "f8", "48", "f6", "f4", "b3", "21", "15", "78", "99", "b1", "af", "f9",
@@ -299,7 +306,7 @@ int fTable(int input) {
     }
     return res;
 }
-
+// F FUNCTION - as outlined in specs. Calls G FUNCTION twice, 'returns' F0 and F1
 int *F(int R0, int R1, int *F0, int *F1, int subkeys[12][8]) {
     int k0 = 0, k1 = 0, k2 = 0, k3 = 0, k4 = 0, k5 = 0, k6 = 0, k7 = 0, k8 = 0, k9 = 0, k10 = 0, k11 = 0;
     for (int i = 0; i < 8; i++) {
@@ -315,14 +322,15 @@ int *F(int R0, int R1, int *F0, int *F1, int subkeys[12][8]) {
         k9 = (k9 << 1) | subkeys[9][i];;
         k10 = (k10 << 1) | subkeys[10][i];
         k11 = (k11 << 1) | subkeys[11][i];
-    } printf("k0: %x | k1: %x | k2: %x | k3: %x | k4: %x | k5: %x | k6: %x | k7: %x | k8: %x | k9: %x | k10: %x | k11: %x\n", k0, k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11);
+    } //printf("k0: %x | k1: %x | k2: %x | k3: %x | k4: %x | k5: %x | k6: %x | k7: %x | k8: %x | k9: %x | k10: %x | k11: %x\n", k0, k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11);
     int T0 = G(R0, k0, k1, k2, k3);
     int T1 = G(R1, k4, k5, k6, k7);
-    printf("T0: %x | T1: %x\n", T0, T1);
+    //printf("T0: %x | T1: %x\n", T0, T1);
     *F0 = (T0 + 2*T1 + ((k8 << 8) | k9)) % 65536;
     *F1 = (2*T0 + T1 + ((k10 << 8) | k11)) % 65536;
+    return 0;
 }
-
+// Rotates an array of bits left
 int leftRotate(int *key) {
     int i, head;
     head = key[0];
@@ -330,8 +338,9 @@ int leftRotate(int *key) {
         key[i] = key[i + 1];
     }
     key[i] = head; // circular rotation
+    return 0;
 }
-
+// Rotates an array of bits right
 int rightRotate(int *key) {
     int i, tail;
     tail = key[64];
@@ -339,8 +348,9 @@ int rightRotate(int *key) {
         key[i] = key[i - 1];
     }
     key[i] = tail; // circular rotation
+    return 0;
 }
-
+// Converts an array of hex values to an array of binary bits
 int hexToBinary(char *hex, int *binArray, int multiple) {
     for (int i = 0; i < multiple; i++) {
  
