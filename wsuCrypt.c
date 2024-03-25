@@ -9,19 +9,20 @@ Date: 3/9/23
 # include <fcntl.h>
 # include <unistd.h>
 # include <stdlib.h>
+# include <math.h>
 
 # define BUFF_SIZE 1024
 
-int e(char *key, char *pTxt, char *cTxt, int flag);
+int cryption(char *key, char *pTxt, char *cTxt, int flag);
 char **blockSplit(char *block, char **words);
 char **keySplit(char *wholeKey, char **keys);
 int hexToBinary(char *hex, int *binArray, int multiple);
 int fTable(int input);
 int leftRotate(int *key);
-int rightRotate(int *key);
 int keyScheduler(int x, int keyNum, int *key, int (*subkeys)[8]);
-int *F(int R0, int R1, int *F0, int *F1, int subkeys[12][8]);
+int F(int R0, int R1, int *F0, int *F1, int subkeys[192][8], int roundNum);
 int G(int word, int k0, int k1, int k2, int k3);
+int asciiToBinary(char *ascii, int *binArray, int multiple);
 
 int main (int argc, char **argv) {
 
@@ -31,9 +32,9 @@ int main (int argc, char **argv) {
 
     int flag;
     if (strcmp(argv[1], "-e") == 0) {
-        e(argv[3], argv[5], argv[7], 0); // 0 for encryption
+        cryption(argv[3], argv[5], argv[7], 0); // 0 for encryption
     } else if (strcmp(argv[1], "-d") == 0) {
-        e(argv[3], argv[5], argv[7], 1); // 1 for decryption
+        cryption(argv[3], argv[5], argv[7], 1); // 1 for decryption
     } else {
         printf("Improper use. Run using:\n[ENCRYPTION] ./wsuCrypt -e -k key.txt -in plaintext.txt -out ciphertext.txt\n[DECRYPTION] ./wsuCrypt -d -k key.txt -in ciphertext.txt -out plaintext.txt");
         return -1;
@@ -43,7 +44,7 @@ int main (int argc, char **argv) {
 }
 
 // main encryption/decryption function. Top level- handles what would be more difficult to do in following functions, and passes values between functions
-int e(char *key, char *pTxt, char *cTxt, int flag) {
+int cryption(char *key, char *pTxt, char *cTxt, int flag) {
 
     char txtBuffer[BUFF_SIZE];
     char keyBuffer[17];
@@ -102,6 +103,22 @@ int e(char *key, char *pTxt, char *cTxt, int flag) {
     hexToBinary(keys[2], K2, 4);
     hexToBinary(keys[3], K3, 4);
 
+    // GENERATE SUBKEYS - rotate key[64] and call key scheduler
+    // binary rep of key
+    int binKey[64];
+    hexToBinary(keyBuffer, binKey, 16);
+    int subkeys[192][8]; // k0-k191, each 1 byte long (8 bits)
+    int keyNum = 0;
+    for (int roundNum = 0; roundNum < 16; roundNum++) {
+        for (int j = 0; j < 3; j++) {
+            for (int k = 0; k < 4; k++) {
+                leftRotate(binKey);
+                keyScheduler(4*roundNum + k, keyNum, binKey, subkeys);
+                keyNum++;
+            }
+        }
+    }
+
     // MAIN ENCRYPTION LOOP
     int numBlocks = pTxtLen/16;
     for (i = 0; i < numBlocks; i++) { // for each block
@@ -145,48 +162,23 @@ int e(char *key, char *pTxt, char *cTxt, int flag) {
             k3 = (k3 << 1) | K3[i];
         }
 
-        // binary rep of key
-        int key[64];
-        hexToBinary(keyBuffer, key, 16);
         for (int roundNum = 0; roundNum < 16; roundNum++) {
             //printf("ROUND %d:\n", roundNum);
-            // GENERATE SUBKEYS - rotate key[64] and call key scheduler
-            int subkeys[12][8]; // k0-k11, each 1 byte long (8 bits)
-            if (flag == 0) {
-                int keyNum = 0;
-                for (int j = 0; j < 3; j++) {
-                    for (int k = 0; k < 4; k++) {
-                        leftRotate(key);
-                        keyScheduler(4*roundNum + k, keyNum, key, subkeys);
-                        keyNum++;
-                    }
-                }
-            } else {
-                int keyNum = 11;
-                for (int j = 0; j < 3; j++) {
-                    for (int k = 0; k < 4; k++) {
-                        leftRotate(key);
-                        keyScheduler(4*roundNum + k, keyNum, key, subkeys);
-                        //leftRotate(key);
-                        keyNum--;
-                    }
-                }
-            }
-
-            // F FUNCTION
-            int F0, F1;
-            F(r0, r1, &F0, &F1, subkeys);
-            //printf("F0: %x | F1: %x\n", F0, F1);
-
             // PREP VALS FOR NEXT ROUND
             int temp, temp2;
             if (flag == 0) {
-                temp = (r2 ^ F0);// >> 1;
+                // F FUNCTION
+                int F0, F1;
+                F(r0, r1, &F0, &F1, subkeys, roundNum);
+                temp = (r2 ^ F0);
                 temp = (temp >> 1) | (temp << 15) % 65536;
                 temp2 = ((r3 << 1) | (r3 >> 15)) % 65536;
                 temp2 = temp2 ^ F1;
             }
             if (flag == 1) {
+                // F FUNCTION
+                int F0, F1;
+                F(r0, r1, &F0, &F1, subkeys, 15 - roundNum);
                 temp = (((r2 << 1) | (r2 >> 15)) % 65536) ^ F0;
                 temp2 = (r3 ^ F1); 
                 temp2 = (temp2 >> 1) | (temp2 << 15) % 65536;
@@ -307,21 +299,21 @@ int fTable(int input) {
     return res;
 }
 // F FUNCTION - as outlined in specs. Calls G FUNCTION twice, 'returns' F0 and F1
-int *F(int R0, int R1, int *F0, int *F1, int subkeys[12][8]) {
+int F(int R0, int R1, int *F0, int *F1, int subkeys[192][8], int roundNum) {
     int k0 = 0, k1 = 0, k2 = 0, k3 = 0, k4 = 0, k5 = 0, k6 = 0, k7 = 0, k8 = 0, k9 = 0, k10 = 0, k11 = 0;
     for (int i = 0; i < 8; i++) {
-        k0 = (k0 << 1) | subkeys[0][i];
-        k1 = (k1 << 1) | subkeys[1][i];
-        k2 = (k2 << 1) | subkeys[2][i];
-        k3 = (k3 << 1) | subkeys[3][i];
-        k4 = (k4 << 1) | subkeys[4][i];
-        k5 = (k5 << 1) | subkeys[5][i];;
-        k6 = (k6 << 1) | subkeys[6][i];
-        k7 = (k7 << 1) | subkeys[7][i];
-        k8 = (k8 << 1) | subkeys[8][i];
-        k9 = (k9 << 1) | subkeys[9][i];;
-        k10 = (k10 << 1) | subkeys[10][i];
-        k11 = (k11 << 1) | subkeys[11][i];
+        k0 = (k0 << 1) | subkeys[0 + 12*roundNum][i];
+        k1 = (k1 << 1) | subkeys[1 + 12*roundNum][i];
+        k2 = (k2 << 1) | subkeys[2 + 12*roundNum][i];
+        k3 = (k3 << 1) | subkeys[3 + 12*roundNum][i];
+        k4 = (k4 << 1) | subkeys[4 + 12*roundNum][i];
+        k5 = (k5 << 1) | subkeys[5 + 12*roundNum][i];
+        k6 = (k6 << 1) | subkeys[6 + 12*roundNum][i];
+        k7 = (k7 << 1) | subkeys[7 + 12*roundNum][i];
+        k8 = (k8 << 1) | subkeys[8 + 12*roundNum][i];
+        k9 = (k9 << 1) | subkeys[9 + 12*roundNum][i];
+        k10 = (k10 << 1) | subkeys[10 + 12*roundNum][i];
+        k11 = (k11 << 1) | subkeys[11 + 12*roundNum][i];
     } //printf("k0: %x | k1: %x | k2: %x | k3: %x | k4: %x | k5: %x | k6: %x | k7: %x | k8: %x | k9: %x | k10: %x | k11: %x\n", k0, k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11);
     int T0 = G(R0, k0, k1, k2, k3);
     int T1 = G(R1, k4, k5, k6, k7);
@@ -338,16 +330,6 @@ int leftRotate(int *key) {
         key[i] = key[i + 1];
     }
     key[i] = head; // circular rotation
-    return 0;
-}
-// Rotates an array of bits right
-int rightRotate(int *key) {
-    int i, tail;
-    tail = key[64];
-    for (i = 64; i > 0; i--) {
-        key[i] = key[i - 1];
-    }
-    key[i] = tail; // circular rotation
     return 0;
 }
 // Converts an array of hex values to an array of binary bits
